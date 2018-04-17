@@ -83,8 +83,9 @@ def translate1(translate_client, text, target):
     # print(u'Text: {}'.format(text))
     print(u'Translation: {}'.format(translation['translatedText']))
     # en-US en-GB de-DE es-ES fr-FR it-IT
-    target = target+"-"+target.upper()
-    aiy.audio.say(translation['translatedText'], lang=target)
+    if target != "zh":
+        target = target+"-"+target.upper()
+        aiy.audio.say(translation['translatedText'], lang=target)
 
 
 def process_event(assistant, event, translate_client):
@@ -110,6 +111,7 @@ def process_event(assistant, event, translate_client):
             assistant.stop_conversation()
             if findwords(text, "turn off", "translat") != -1:
                 _translate_on = 0
+                aiy.audio.say("Translation off", lang="en-US")
             else:
                 translate1(translate_client, text, _tlang)
         elif text == 'power off':
@@ -132,17 +134,21 @@ def process_event(assistant, event, translate_client):
         elif findwords(text, 'turn on', 'translat') != -1:
             assistant.stop_conversation()
             _translate_on=1
-            assistant.start_conversation()
             if text.find('chinese') != -1:
                _tlang = 'zh'
+               aiy.audio.say("Translator is in Chinese")
             elif text.find('italian') != -1:
                _tlang = 'it'
+               aiy.audio.say("Translator is in Italian")
             elif text.find('french') != -1:
                _tlang = 'fr'
+               aiy.audio.say("Translator is in French")
             elif text.find('german') != -1:
                _tlang = 'de'
+               aiy.audio.say("Translator is in German")
             else:
                _tlang = 'es'
+               aiy.audio.say("Translator is in Spanish")
 
     elif event.type == EventType.ON_END_OF_UTTERANCE:
         status_ui.status('thinking')
