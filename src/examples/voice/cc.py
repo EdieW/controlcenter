@@ -25,6 +25,8 @@ import logging
 import platform
 import subprocess
 import sys
+import socket
+import threading
 
 import RPi.GPIO as GPIO
 
@@ -38,12 +40,49 @@ from google.cloud import translate
 _relay = 4
 _translate_on = 0
 _tlang = 'es'
+_udp_poll = 0.5
+_t = 0.0
+_h = 0
+_sprinkler_on = 0
 
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] %(levelname)s:%(name)s:%(message)s"
 )
 
+def sprinkler(t,h):
+  aiy.audio.say("temperature {} humidity {}".format(t, h))
+  if t > 28 or h < 50:
+    son = 1
+  else:
+    son = 0
+  if (_sprinkler_on != son):
+    light(_relay,son)
+    if (son == 1):
+       aiy.audio.say("Turn on sprinkler")
+    else:
+       aiy.audio.say("Turn off sprinkler")
+
+def udppoll(sock, text_file):
+  threading.Timer(_udp_poll, udppoll,[sock, text_file]).start()
+  if sock.recv != None:
+      data, address = sock.recvfrom(1024)
+      print('received {} bytes from {}'.format(
+        len(data), address))
+      print(data)
+
+      if data:
+        str = data.decode()
+        text_file.write(str + "\n")
+        temperature,humidity = str.split(',')
+        _t = float(temperature)
+        _h = int(humidity)
+        sent = sock.sendto("OK".encode(), address)
+        print('sent {} bytes back to {}'.format(
+            sent, address))
+        sprinkler(_t, _h)
+  else:
+      print('No data')
 
 def power_off_pi():
     aiy.audio.say('Good bye!')
@@ -131,6 +170,9 @@ def process_event(assistant, event, translate_client):
         elif findwords(text, 'turn off', 'light') != -1:
             assistant.stop_conversation()
             light(_relay,0)
+        elif findwords(text, 'sprinkler', 'state') != -1:
+            assistant.stop_conversation()
+            aiy.audio.say("temperature {} humidity {}".format(_t, _h))
         elif findwords(text, 'turn on', 'translat') != -1:
             assistant.stop_conversation()
             _translate_on=1
@@ -171,6 +213,18 @@ def main():
 
     GPIO.setup(_relay, GPIO.OUT)
     GPIO.output(_relay, GPIO.LOW)
+
+    # Create a UDP socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Bind the socket to the port
+    server_address = ('0.0.0.0', 17002)
+    print('starting up on {} port {}'.format(*server_address))
+    sock.bind(server_address)
+
+    # open a file
+    text_file = open("Output.txt", "a")
+    # udp polling timer
+    udppoll(sock, text_file)
 
     # Instantiates a client
     translate_client = translate.Client()
