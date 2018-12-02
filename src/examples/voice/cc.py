@@ -27,6 +27,7 @@ import subprocess
 import sys
 import socket
 import threading
+import time
 
 import RPi.GPIO as GPIO
 
@@ -62,6 +63,19 @@ def sprinkler(t,h):
        aiy.audio.say("Turn on sprinkler")
     else:
        aiy.audio.say("Turn off sprinkler")
+
+def udpinit():
+    # Create a UDP socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Bind the socket to the port
+    server_address = ('0.0.0.0', 17002)
+    print('starting up on {} port {}'.format(*server_address))
+    sock.bind(server_address)
+
+    # open a file
+    text_file = open("Output.txt", "a")
+    # udp polling timer
+    udppoll(sock, text_file)
 
 def udppoll(sock, text_file):
   threading.Timer(_udp_poll, udppoll,[sock, text_file]).start()
@@ -111,6 +125,14 @@ def findwords(text, word1, word2):
        w1 = text.find(word2, w1)
     return w1
 
+def blink_pi(tm):
+    aiy.audio.say('Blinking')
+    for x in range(0, 5):
+        GPIO.output(_relay,GPIO.HIGH)
+        time.sleep(tm)
+        GPIO.output(_relay, GPIO.LOW)
+        time.sleep(tm)
+
 def translate1(translate_client, text, target):
     # The target language
     print("Translating to ", target, "....")
@@ -131,6 +153,10 @@ def process_event(assistant, event, translate_client):
     status_ui = aiy.voicehat.get_status_ui()
     if event.type == EventType.ON_START_FINISHED:
         status_ui.status('ready')
+
+        #start udp listener
+        udpinit()
+
         # use USB speaker instead of headphone jack
         # aiy.audio.set_audio_device("sysdefault:CARD=2")
         aiy.audio.say("I am ready")
@@ -162,6 +188,22 @@ def process_event(assistant, event, translate_client):
         elif text == 'ip address':
             assistant.stop_conversation()
             say_ip()
+        elif text.find('link') != -1:
+            tm = 1
+            if text.find('half') != -1:
+                tm = 0.5
+            elif text.find('quarter') != -1:
+                tm = 0.25
+            elif text.find('two') != -1:
+                tm = 2
+            elif text.find('three') != -1:
+                tm = 3
+            elif text.find('four') != -1:
+                tm = 4
+            elif text.find('five') != -1:
+                tm = 5
+            assistant.stop_conversation()
+            blink_pi(tm)
         elif text == 'goodbye':
             sys.exit(0)
         elif findwords(text, 'turn on', 'light') != -1:
@@ -214,17 +256,7 @@ def main():
     GPIO.setup(_relay, GPIO.OUT)
     GPIO.output(_relay, GPIO.LOW)
 
-    # Create a UDP socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # Bind the socket to the port
-    server_address = ('0.0.0.0', 17002)
-    print('starting up on {} port {}'.format(*server_address))
-    sock.bind(server_address)
-
-    # open a file
-    text_file = open("Output.txt", "a")
-    # udp polling timer
-    udppoll(sock, text_file)
+    #blink_pi(1)
 
     # Instantiates a client
     translate_client = translate.Client()
