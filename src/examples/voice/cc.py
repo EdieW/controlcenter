@@ -67,6 +67,7 @@ def sprinkler(t,h):
 def udpinit():
     # Create a UDP socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setblocking(0)
     # Bind the socket to the port
     server_address = ('0.0.0.0', 17002)
     print('starting up on {} port {}'.format(*server_address))
@@ -79,7 +80,7 @@ def udpinit():
 
 def udppoll(sock, text_file):
   threading.Timer(_udp_poll, udppoll,[sock, text_file]).start()
-  if sock.recv != None:
+  try:
       data, address = sock.recvfrom(1024)
       print('received {} bytes from {}'.format(
         len(data), address))
@@ -95,8 +96,8 @@ def udppoll(sock, text_file):
         print('sent {} bytes back to {}'.format(
             sent, address))
         sprinkler(_t, _h)
-  else:
-      print('No data')
+  except socket.error:
+      print("no data")
 
 def power_off_pi():
     aiy.audio.say('Good bye!')
