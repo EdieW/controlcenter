@@ -45,6 +45,7 @@ _udp_poll = 0.5
 _t = 0.0
 _h = 0
 _sprinkler_on = 0
+_cnt = 0
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,8 +53,8 @@ logging.basicConfig(
 )
 
 def sprinkler(t,h):
-  aiy.audio.say("temperature {} humidity {}".format(t, h))
-  if t > 28 or h < 50:
+  #aiy.audio.say("temperature {} humidity {}".format(t, h))
+  if t > 28 or h < 70:
     son = 1
   else:
     son = 0
@@ -79,6 +80,10 @@ def udpinit():
     udppoll(sock, text_file)
 
 def udppoll(sock, text_file):
+  global _t
+  global _h
+  global _cnt
+
   threading.Timer(_udp_poll, udppoll,[sock, text_file]).start()
   try:
       data, address = sock.recvfrom(1024)
@@ -97,7 +102,9 @@ def udppoll(sock, text_file):
             sent, address))
         sprinkler(_t, _h)
   except socket.error:
-      print("no data")
+      if _cnt % 10 == 0:
+         print("no data")
+      _cnt = _cnt + 1
 
 def power_off_pi():
     aiy.audio.say('Good bye!')
