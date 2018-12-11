@@ -28,6 +28,7 @@ import sys
 import socket
 import threading
 import time
+import datetime
 
 import RPi.GPIO as GPIO
 
@@ -46,18 +47,16 @@ _t = 0.0
 _h = 0
 _sprinkler_on = 0
 _cnt = 0
+_sock = 0
+_peeraddress = None 
 
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] %(levelname)s:%(name)s:%(message)s"
 )
 
-def sprinkler(t,h):
+def sprinkler(t,h,son):
   #aiy.audio.say("temperature {} humidity {}".format(t, h))
-  if t > 28 or h < 70:
-    son = 1
-  else:
-    son = 0
   if (_sprinkler_on != son):
     light(_relay,son)
     if (son == 1):
@@ -78,6 +77,11 @@ def udpinit():
     text_file = open("Output.txt", "a")
     # udp polling timer
     udppoll(sock, text_file)
+    return sock
+
+def udpsend(type, val):
+    str = type + val
+    _sock.sendto(str.encode(), _peeraddress)
 
 def udppoll(sock, text_file):
   global _t
@@ -86,21 +90,23 @@ def udppoll(sock, text_file):
 
   threading.Timer(_udp_poll, udppoll,[sock, text_file]).start()
   try:
-      data, address = sock.recvfrom(1024)
+      global _peeraddress
+      data, _peeraddress = sock.recvfrom(1024)
       print('received {} bytes from {}'.format(
-        len(data), address))
+        len(data), _peeraddress))
       print(data)
 
       if data:
-        str = data.decode()
+        str = str(datetime.now()) + " " + data.decode()
         text_file.write(str + "\n")
-        temperature,humidity = str.split(',')
+        temperature,humidity,son = str.split(',')
         _t = float(temperature)
         _h = int(humidity)
-        sent = sock.sendto("OK".encode(), address)
+        sonval = int(son) 
+        sent = sock.sendto("OK".encode(), _peeraddress)
         print('sent {} bytes back to {}'.format(
-            sent, address))
-        sprinkler(_t, _h)
+            sent, _peeraddress))
+        sprinkler(_t, _h, sonval)
   except socket.error:
       if _cnt % 10 == 0:
          print("no data")
@@ -163,7 +169,8 @@ def process_event(assistant, event, translate_client):
         status_ui.status('ready')
 
         #start udp listener
-        udpinit()
+        global _sock
+        _sock = udpinit()
 
         # use USB speaker instead of headphone jack
         # aiy.audio.set_audio_device("sysdefault:CARD=2")
