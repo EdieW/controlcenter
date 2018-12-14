@@ -6,17 +6,29 @@
 #include <WiFiUdp.h>
 #include <SimpleDHT.h>
 
-// for DHT11, 
+// for DHT11,
 //      VCC: 5V or 3V
 //      GND: GND
 //      DATA: 2
 int pinDHT11 = 2;
 SimpleDHT11 dht11(pinDHT11);
 
+//replay control pin - D1
+int relayInput = 5; // the input to the relay pin
+int relayon = 0;
+float temp_on = 30;
+
 #define TCP             0
 #define UDP             1
-#define DS18B20_ENAB    0
-#define DHT11_ENAB      1
+#define DS18B20_ENAB    1
+#define DHT11_ENAB      0
+#define MOISTURE        1
+
+#if DHT11_ENAB
+int humid_on = 50;
+#else
+int humid_on = 40;
+#endif
 
 //------------------------------------------
 //DS18B20
@@ -34,7 +46,7 @@ const int durationTemp = 3000; //The frequency of temperature measurement
 
 //------------------------------------------
 //WIFI
-const char* ssid = "ATT9441";
+const char* ssid = "ATT9442";
 const char* password = "maplehome123";
 
 //------------------------------------------
@@ -43,13 +55,30 @@ ESP8266WebServer server(80);
 
 //TCP
 WiFiClient client;
-const char *host = "10.0.1.26";
+const char *host = "192.168.10.119";
 const uint16_t port = 17000;
 
 //UDP
 WiFiUDP Udp;
 unsigned int localUdpPort = 17001;
 unsigned int remoteUdpPort = 17002;
+
+void relay(int on)
+{
+   if (on) {
+    digitalWrite(relayInput, HIGH);
+   } else {
+    digitalWrite(relayInput, LOW);
+   }
+   relayon = on;
+}
+
+void TurnOnRelay(float temp, int humid) {
+  if (temp > temp_on || humid < humid_on)
+     relay(1);
+  else
+     relay(0);
+}
 
 #if TCP
 //TCPConnect
@@ -62,7 +91,7 @@ void TCPConnect(const char *host, uint16_t port)
       Serial.println("TCP connection up");
     }
   }
-  
+
 }
 
 void TCPSend(char *data)
@@ -71,7 +100,7 @@ void TCPSend(char *data)
   if (client.connected()) {
     Serial.print("sending data to server:");
     Serial.println(data);
-    
+
     client.println(data);
   }
 }
@@ -111,14 +140,14 @@ int UdpSend(const char* hostip, int port, char* replyPacket)
 int UdpReceive(char *data, int len)
 {
   int packetSize = Udp.parsePacket();
-  
+
   if (packetSize)
   {
     // receive incoming UDP packets
     Serial.printf("Received %d bytes from %s, port %d\n", packetSize, Udp.remoteIP().toString().c_str(), Udp.remotePort());
     if (packetSize > len-1)
       packetSize = len-1;
-        
+
     len = Udp.read(data, packetSize);
     if (len > 0)
     {
@@ -126,7 +155,7 @@ int UdpReceive(char *data, int len)
     }
     packetSize = len;
   }
-  
+
   return packetSize;
 }
 
@@ -149,10 +178,13 @@ int DHT11_Get_Temp(float *temp, int *humid) {
     Serial.print("Read DHT11 failed, err="); Serial.println(err);
     return -1;
   }
-  
+
   Serial.print("Sample OK: ");
-  Serial.print((int)temperature); Serial.print(" *C, "); 
-  Serial.print((int)humidity); Serial.println(" H");
+  Serial.print((int)temperature); Serial.print(" *C, ");
+  Serial.print((int)humidity);
+  Serial.print(" H, Relay ");
+  Serial.println((int)relayon);
+
   *temp = (float)temperature;
   *humid = (int)humidity;
   return 0;
@@ -173,13 +205,13 @@ String GetAddressToString(DeviceAddress deviceAddress){
 void SetupDS18B20(){
   DS18B20.begin();
 
-  Serial.print("Parasite power is: "); 
-  if( DS18B20.isParasitePowerMode() ){ 
+  Serial.print("Parasite power is: ");
+  if( DS18B20.isParasitePowerMode() ){
     Serial.println("ON");
   }else{
     Serial.println("OFF");
   }
-  
+
   numberOfDevices = DS18B20.getDeviceCount();
   Serial.print( "Device count: " );
   Serial.println( numberOfDevices );
@@ -217,7 +249,7 @@ void SetupDS18B20(){
 //Loop measuring the temperature
 int TempLoop(float *temp){
   char str[200];
-  
+
   memset(str, 0, sizeof(str));
   for(int i=0; i<numberOfDevices; i++){
     char buf[40];
@@ -259,7 +291,7 @@ void HandleRoot(){
     message += "\r\n";
   }
   message += "</table>\r\n";
-  
+
   server.send(200, "text/html", message );
 }
 
@@ -278,21 +310,39 @@ void HandleNotFound(){
   server.send(404, "text/html", message);
 }
 
+int calculatemoi(int newval)
+{
+   char str[50];
+   int value;
 
+   // 1024 is dryest value, 550 is wetest value
+   value = map(newval,1024,550,0,100);
+   Serial.println(value);
+
+   sprintf(str, "rawdata %d humid %d", newval, value);
+   Serial.println(str);
+
+   return value;
+}
 //------------------------------------------
 void setup() {
+  int i = 0;
   //Setup Serial port speed
   Serial.begin(115200);
+
+  pinMode(relayInput, OUTPUT); // initialize pin as OUTPUT
+  relay(0);
 
   //Setup WIFI
   WiFi.begin(ssid, password);
   Serial.println("");
 
   //Wait for WIFI connection
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED && i++< 20) {
     delay(500);
     Serial.print(".");
   }
+
   Serial.println("");
   Serial.print("Connected to ");
   Serial.println(ssid);
@@ -323,10 +373,10 @@ void setup() {
 void loop() {
   float temp;
   int humid = 0;
-  int ret;
-  
+  int ret = 0;
+
   server.handleClient();
-#if TCP  
+#if TCP
   TCPConnect(host, port);
 #endif
 #if DS18B20_ENAB
@@ -335,12 +385,17 @@ void loop() {
 #if DHT11_ENAB
   ret = DHT11_Get_Temp(&temp, &humid);
 #endif
+#if MOISTURE
+  //Serial.println(analogRead(A0));
+  humid = calculatemoi(analogRead(A0));
+#endif
   if (!ret) {
     //report info
     char str[100];
     memset(str, 0, sizeof(str));
-    sprintf(str, "%f,%d", temp, humid);
-#if TCP    
+    TurnOnRelay(temp, humid);
+    sprintf(str, "%f,%d,%d", temp, humid, relayon);
+#if TCP
     TCPSend(str);
 #endif
 #if UDP
@@ -354,9 +409,15 @@ void loop() {
         Serial.println(str);
         if (!strcmp(str, "OK"))
           Serial.println("Got Ack");
+        else if (str[0] == 'T') {
+          temp_on = atof(&str[1]);
+        } else if (str[0] == 'H') {
+          humid_on = atoi(&str[1]);
+        }
       }
     }
-#endif   
+#endif
   }
+
   delay(durationTemp);
 }
