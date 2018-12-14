@@ -48,7 +48,7 @@ _t = 0.0
 _h = 0
 _sprinkler_on = 0
 _cnt = 0
-_sock = 0
+_sock = None
 _peeraddress = None
 
 logging.basicConfig(
@@ -69,10 +69,10 @@ def sprinkler(t,h,son):
   
 def data_report(filepath):
   now = datetime.datetime.today()
+  cnt = 0
   with open(filepath,'r') as fp:
-    cnt = 0
     for line in fp:
-       print("contents {}".format(line))
+       #print("contents {}".format(line))
        date1,time1,val = line.strip().split(' ')
        newdate1 = datetime.datetime.strptime(date1, "%Y-%m-%d")
        newdate2 = newdate1 + timedelta(days=1)
@@ -81,25 +81,30 @@ def data_report(filepath):
          if (son == "1"):
             cnt += 1
     print("usage cnt {} time {} seconds".format(cnt,cnt*30))
+    cnt = cnt *30
+  return cnt
   
 def udpinit():
+    global _sock
     # Create a UDP socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setblocking(0)
+    _sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    _sock.setblocking(0)
     # Bind the socket to the port
     server_address = ('0.0.0.0', 17002)
     print('starting up on {} port {}'.format(*server_address))
-    sock.bind(server_address)
+    _sock.bind(server_address)
 
     # open a file
     text_file = open("Output.txt", "a")
     # udp polling timer
-    udppoll(sock, text_file)
-    return sock
+    udppoll(_sock, text_file)
 
 def udpsend(type, val):
-    str = type + val
-    _sock.sendto(str.encode(), _peeraddress)
+    global _sock,_peeraddress
+    if _peeraddress != None:
+      str1 = type + str(val)
+      print("udpsend "+ str1)
+      _sock.sendto(str1.encode(), _peeraddress)
 
 def udppoll(sock, text_file):
   global _t
@@ -121,7 +126,7 @@ def udppoll(sock, text_file):
         _t = float(temperature)
         _h = int(humidity)
         sonval = int(son) 
-        sent = sock.sendto("H66".encode(), _peeraddress)
+        sent = sock.sendto("ACK".encode(), _peeraddress)
         print('sent {} bytes back to {}'.format(
             sent, _peeraddress))
         sprinkler(_t, _h, sonval)
@@ -129,7 +134,8 @@ def udppoll(sock, text_file):
       if _cnt % 10 == 0:
          print("no data")
          text_file.flush()
-         data_report("Output.txt")
+         #data_report("Output.txt")
+         #udpsend("H", 20)
       _cnt = _cnt + 1
 
 def power_off_pi():
@@ -189,8 +195,7 @@ def process_event(assistant, event, translate_client):
         status_ui.status('ready')
 
         #start udp listener
-        global _sock
-        _sock = udpinit()
+        udpinit()
 
         # use USB speaker instead of headphone jack
         # aiy.audio.set_audio_device("sysdefault:CARD=2")
@@ -247,9 +252,31 @@ def process_event(assistant, event, translate_client):
         elif findwords(text, 'turn off', 'light') != -1:
             assistant.stop_conversation()
             light(_relay,0)
-        elif findwords(text, 'sprinkler', 'state') != -1:
+        elif findwords(text, 'spri', 'state') != -1:
+            global _sprinkler_on
+            global _t, _h
             assistant.stop_conversation()
-            aiy.audio.say("temperature {} humidity {}".format(_t, _h))
+            if _sprinkler_on == 1:
+              say = "sprinkler is on"
+            else:
+              say = "sprinkler is off"
+            aiy.audio.say("temperature {} humidity {} {}".format(_t, _h, say))
+        elif findwords(text, 'spri', 'set') != -1:
+            assistant.stop_conversation()
+            num = int(filter(str.isdigit, text))
+            if findwords(text, 'set', 'humid') != -1:
+              udpsend('H', num)
+            elif findwords(text, 'set', 'temperature') != -1:
+              udpsend('T', num)
+        elif findwords(text, 'spri', 'on') != -1:
+            assistant.stop_conversation()
+            udpsend('H', 100)
+        elif findwords(text, 'spri', 'off') != -1:
+            assistant.stop_conversation()
+            udpsend('H', 0)
+        elif findwords(text, 'spri', 'report') != -1:
+            assistant.stop_conversation()
+            aiy.audio.say("total watering time " + data_report("Output.txt") + " seconds")
         elif findwords(text, 'turn on', 'translat') != -1:
             assistant.stop_conversation()
             _translate_on=1
