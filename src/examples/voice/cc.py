@@ -29,6 +29,7 @@ import socket
 import threading
 import time
 import datetime
+from datetime import timedelta
 
 import RPi.GPIO as GPIO
 
@@ -48,7 +49,7 @@ _h = 0
 _sprinkler_on = 0
 _cnt = 0
 _sock = 0
-_peeraddress = None 
+_peeraddress = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,14 +57,31 @@ logging.basicConfig(
 )
 
 def sprinkler(t,h,son):
+  global _sprinkler_on;
   #aiy.audio.say("temperature {} humidity {}".format(t, h))
   if (_sprinkler_on != son):
-    light(_relay,son)
+    # light(_relay,son)
     if (son == 1):
        aiy.audio.say("Turn on sprinkler")
     else:
        aiy.audio.say("Turn off sprinkler")
-
+    _sprinkler_on = son
+  
+def data_report(filepath):
+  now = datetime.datetime.today()
+  with open(filepath,'r') as fp:
+    cnt = 0
+    for line in fp:
+       print("contents {}".format(line))
+       date1,time1,val = line.strip().split(' ')
+       newdate1 = datetime.datetime.strptime(date1, "%Y-%m-%d")
+       newdate2 = newdate1 + timedelta(days=1)
+       if (newdate1 <= now and now <= newdate2):
+         t,h,son = val.strip().split(',')
+         if (son == "1"):
+            cnt += 1
+    print("usage cnt {} time {} seconds".format(cnt,cnt*30))
+  
 def udpinit():
     # Create a UDP socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -97,19 +115,21 @@ def udppoll(sock, text_file):
       print(data)
 
       if data:
-        str = str(datetime.now()) + " " + data.decode()
-        text_file.write(str + "\n")
-        temperature,humidity,son = str.split(',')
+        str1 = str(datetime.datetime.now()) + " " + data.decode()
+        text_file.write(str1 + "\n")
+        temperature,humidity,son = data.decode().split(',')
         _t = float(temperature)
         _h = int(humidity)
         sonval = int(son) 
-        sent = sock.sendto("OK".encode(), _peeraddress)
+        sent = sock.sendto("H66".encode(), _peeraddress)
         print('sent {} bytes back to {}'.format(
             sent, _peeraddress))
         sprinkler(_t, _h, sonval)
   except socket.error:
       if _cnt % 10 == 0:
          print("no data")
+         text_file.flush()
+         data_report("Output.txt")
       _cnt = _cnt + 1
 
 def power_off_pi():
